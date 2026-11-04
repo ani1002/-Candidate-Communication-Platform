@@ -11,7 +11,7 @@ from twilio.rest import Client
 # code -> (message for the recruiter, can retrying help?)
 FRIENDLY_ERRORS = {
     "INVALID_RECIPIENT": (
-        "This phone number is not valid or is not on WhatsApp. Please check the number.",
+        "This phone number is not valid. Please check the number and country code.",
         False,
     ),
     "DELIVERY_FAILED": (
@@ -36,13 +36,27 @@ FRIENDLY_ERRORS = {
         True,
     ),
     "REJECTED": ("The messaging service rejected this request.", False),
-    "CONFIGURATION_ERROR": ("The WhatsApp messaging provider is not configured correctly.", False),
+    "CONFIGURATION_ERROR": ("The SMS messaging provider is not configured correctly.", False),
+    "21606": ("The configured Twilio number cannot send SMS. Check the sender number in Twilio.", False),
+    "21610": ("The recipient has opted out of messages. Do not send further SMS to this number.", False),
+    "21612": ("Twilio cannot route SMS to this destination. Check the recipient number and country.", False),
+    "21614": ("The recipient number is not a valid mobile number that can receive SMS.", False),
+    "21617": ("The SMS is too long for the provider to send. Shorten the message and try again.", False),
+    "30003": (
+        "The recipient's phone is currently unreachable. Check the number and try again later.",
+        True,
+    ),
+    "30005": ("The recipient's phone number appears invalid or inactive. Check the number.", False),
+    "30004": ("The carrier blocked this SMS. Check the number and messaging permissions.", False),
+    "30006": ("The recipient's phone number is a landline and cannot receive SMS.", False),
+    "30007": ("The message was blocked by carrier or messaging policy.", False),
+    "30008": ("The provider could not deliver the message due to an unknown delivery issue.", True),
 }
 
 
 def friendly_error(code):
     """Returns (recruiter-friendly text, retryable)."""
-    return FRIENDLY_ERRORS.get(code, FRIENDLY_ERRORS["PROVIDER_ERROR"])
+    return FRIENDLY_ERRORS.get(str(code), FRIENDLY_ERRORS["PROVIDER_ERROR"])
 
 
 class ProviderError(Exception):
@@ -57,8 +71,8 @@ class ProviderError(Exception):
         return friendly_error(self.code)[1]
 
 
-class DummyWhatsAppProvider:
-    name = "dummy_whatsapp"
+class DummySMSProvider:
+    name = "dummy_sms"
 
     def send(self, to, body, reference):
         """Send one message. Returns the provider's message id. Raises ProviderError."""
@@ -107,29 +121,28 @@ class DummyWhatsAppProvider:
         raise ProviderError("REJECTED", detail)
 
 
-class TwilioWhatsAppProvider:
-    name = "twilio_whatsapp"
+class TwilioSMSProvider:
+    name = "twilio_sms"
 
     def __init__(self):
         account_sid = settings.TWILIO_ACCOUNT_SID
         auth_token = settings.TWILIO_AUTH_TOKEN
-        self.from_number = settings.TWILIO_WHATSAPP_FROM
+        self.from_number = settings.TWILIO_SMS_FROM
         if not account_sid or not auth_token or not self.from_number:
-            raise ProviderError("CONFIGURATION_ERROR", "Twilio WhatsApp environment variables are missing")
-        if not self.from_number.startswith("whatsapp:+"):
+            raise ProviderError("CONFIGURATION_ERROR", "Twilio SMS environment variables are missing")
+        if not self.from_number.startswith("+"):
             raise ProviderError(
                 "CONFIGURATION_ERROR",
-                "TWILIO_WHATSAPP_FROM must use the format whatsapp:+14155238886",
+                "TWILIO_SMS_FROM must be an SMS-capable E.164 number, such as +14155550123",
             )
         self.client = Client(account_sid, auth_token)
 
     def send(self, to, body, reference):
-        """Create a WhatsApp message through Twilio and return its SID."""
-        recipient = to if to.startswith("whatsapp:") else f"whatsapp:{to}"
-        callback_url = settings.TWILIO_STATUS_CALLBACK_URL
+        """Create an SMS through Twilio and return its SID."""
+        callback_url = settings.TWILIO_SMS_STATUS_CALLBACK_URL
         kwargs = {
             "from_": self.from_number,
-            "to": recipient,
+            "to": to,
             "body": body,
         }
         if callback_url:
@@ -142,10 +155,12 @@ class TwilioWhatsAppProvider:
                 raise ProviderError("RATE_LIMITED", exc.msg or str(exc))
             if exc.status is not None and exc.status >= 500:
                 raise ProviderError("PROVIDER_UNAVAILABLE", exc.msg or str(exc))
-            if exc.code in (21211, 63003, 63007):
+            if exc.code == 21211:
                 raise ProviderError("INVALID_RECIPIENT", exc.msg or str(exc))
             if exc.code in (20003, 20005):
                 raise ProviderError("CONFIGURATION_ERROR", exc.msg or str(exc))
+            if str(exc.code) in FRIENDLY_ERRORS:
+                raise ProviderError(str(exc.code), exc.msg or str(exc))
             raise ProviderError("REJECTED", exc.msg or str(exc))
         except TwilioException as exc:
             raise ProviderError("PROVIDER_ERROR", str(exc))
@@ -158,8 +173,8 @@ class TwilioWhatsAppProvider:
 def get_provider(name=None):
     provider_name = (name or settings.MESSAGE_PROVIDER).strip().lower()
     providers = {
-        "dummy_whatsapp": DummyWhatsAppProvider,
-        "twilio_whatsapp": TwilioWhatsAppProvider,
+        "dummy_sms": DummySMSProvider,
+        "twilio_sms": TwilioSMSProvider,
     }
     provider_class = providers.get(provider_name)
     if provider_class is None:

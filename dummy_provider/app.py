@@ -1,15 +1,15 @@
-"""Dummy WhatsApp-style provider. Runs as its own service, separate from Django.
+"""Dummy SMS provider. Runs as its own service, separate from Django.
 
     python app.py            # listens on http://127.0.0.1:5001
 
 API
   POST /v1/messages   {"to": "+91...", "body": "...", "reference": "<caller's id>"}
-                      -> 202 {"id": "wamid_..."}  or an error (see magic numbers)
+                      -> 202 {"id": "SM..."}  or an error (see magic numbers)
   GET  /v1/messages/<id>   current status of a message
   GET  /health
 
 After accepting a message it calls the main app's webhook with
-sent -> delivered -> read (with small delays), like a real provider.
+sent -> delivered (with small delays), like a real SMS provider.
 Webhook calls are sent twice for "delivered" to prove the receiver is idempotent.
 
 Magic phone numbers (last 4 digits) to simulate problems:
@@ -17,9 +17,9 @@ Magic phone numbers (last 4 digits) to simulate problems:
   0002  provider outage            -> 503 (temporary)
   0003  rate limited               -> 429 + Retry-After (temporary)
   0004  accepted, then delivery fails -> webhook "failed"
-  0005  accepted, delivered, never read -> webhook stops at "delivered"
+  0005  accepted and delivered -> webhook stops at "delivered"
   0006  flaky: first 2 calls 503, then works -> shows automatic retry
-  anything else                    -> sent, delivered, read
+  anything else                    -> sent, delivered
 """
 import os
 import threading
@@ -79,10 +79,6 @@ def lifecycle(msg):
         requests.post(WEBHOOK_URL, json=payload, headers={"X-Webhook-Secret": WEBHOOK_SECRET}, timeout=5)
     except requests.RequestException:
         pass
-    if phone_tail == "0005":
-        return
-    time.sleep(STEP_DELAY)
-    fire_webhook(msg, "read")
 
 
 @app.post("/v1/messages")
@@ -97,7 +93,7 @@ def send():
 
     tail = to[-4:]
     if tail == "0001":
-        return jsonify(code="INVALID_RECIPIENT", message=f"{to} is not a WhatsApp number"), 400
+        return jsonify(code="INVALID_RECIPIENT", message=f"{to} is not a valid SMS number"), 400
     if tail == "0002":
         return jsonify(code="SERVICE_UNAVAILABLE", message="Provider is down"), 503
     if tail == "0003":
@@ -111,7 +107,7 @@ def send():
                 return jsonify(code="SERVICE_UNAVAILABLE", message="Temporary glitch"), 503
 
     msg = {
-        "id": f"wamid_{uuid.uuid4().hex[:16]}",
+        "id": f"SM{uuid.uuid4().hex[:16]}",
         "to": to,
         "body": body,
         "reference": data.get("reference"),

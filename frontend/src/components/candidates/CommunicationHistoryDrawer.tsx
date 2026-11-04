@@ -42,6 +42,11 @@ function HistoryEntry({ message }: { message: CommunicationMessage }) {
       <Typography variant="body2" sx={{ fontSize: 12.5, lineHeight: 1.55, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
         {message.content}
       </Typography>
+      {message.status === 'failed' && (
+        <Alert severity="error" sx={{ mt: 1, py: 0, fontSize: 12 }}>
+          {message.failureReason || 'The provider could not deliver this message.'}
+        </Alert>
+      )}
     </Box>
   );
 }

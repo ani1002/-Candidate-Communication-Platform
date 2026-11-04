@@ -74,19 +74,19 @@ REST_FRAMEWORK = {
 }
 
 # ---- Communication provider ----
-MESSAGE_PROVIDER = os.environ.get("MESSAGE_PROVIDER", "dummy_whatsapp").strip().lower()
+MESSAGE_PROVIDER = os.environ.get("MESSAGE_PROVIDER", "dummy_sms").strip().lower()
 PROVIDER_BASE_URL = os.environ.get("PROVIDER_BASE_URL", "http://127.0.0.1:5001")
 PROVIDER_API_KEY = os.environ.get("PROVIDER_API_KEY", "dummy-provider-key")
 PROVIDER_TIMEOUT_SECONDS = 5
 # Shared secret the provider sends with every webhook so strangers can't fake updates.
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "dummy-webhook-secret")
 
-# Twilio WhatsApp credentials must be configured as server-side environment variables.
+# Twilio SMS credentials must be configured as server-side environment variables.
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
-TWILIO_WHATSAPP_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "")
-# Public HTTPS URL ending in /api/webhooks/twilio/; include a tunnel URL in local development.
-TWILIO_STATUS_CALLBACK_URL = os.environ.get("TWILIO_STATUS_CALLBACK_URL", "").rstrip("/")
+TWILIO_SMS_FROM = os.environ.get("TWILIO_SMS_FROM", "")
+# Public HTTPS URL ending in /api/webhooks/twilio-sms/; use a tunnel for local development.
+TWILIO_SMS_STATUS_CALLBACK_URL = os.environ.get("TWILIO_SMS_STATUS_CALLBACK_URL", "").rstrip("/")
 
 # ---- Sending behaviour ----
 # Messages are sent by a small background thread pool so one slow/failed

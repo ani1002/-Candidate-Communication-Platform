@@ -22,6 +22,7 @@ interface CommunicationMessageDTO {
   id: number;
   body: string;
   status: MessageStatus;
+  failure_reason?: string | null;
   created_at: string;
   sent_at: string | null;
 }
@@ -211,6 +212,7 @@ const apiService = {
       sentAt: row.sent_at ?? row.created_at,
       content: row.body,
       status: row.status,
+      failureReason: row.failure_reason ?? null,
     }));
   },
 

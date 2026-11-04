@@ -227,7 +227,7 @@ class ProviderWebhook(APIView):
 
 
 class TwilioStatusWebhook(APIView):
-    """Receive signed Twilio WhatsApp delivery updates."""
+    """Receive signed Twilio SMS delivery updates."""
 
     authentication_classes = []
     permission_classes = []
@@ -235,7 +235,7 @@ class TwilioStatusWebhook(APIView):
 
     def post(self, request):
         auth_token = settings.TWILIO_AUTH_TOKEN
-        callback_url = settings.TWILIO_STATUS_CALLBACK_URL
+        callback_url = settings.TWILIO_SMS_STATUS_CALLBACK_URL
         if not auth_token or not callback_url:
             return Response(
                 {"error": "Twilio status callbacks are not configured."},
@@ -263,7 +263,6 @@ class TwilioStatusWebhook(APIView):
         status_map = {
             "sent": Message.Status.SENT,
             "delivered": Message.Status.DELIVERED,
-            "read": Message.Status.READ,
             "failed": Message.Status.FAILED,
             "undelivered": Message.Status.FAILED,
         }
@@ -282,7 +281,11 @@ class TwilioStatusWebhook(APIView):
                 provider_message_id=sid,
                 payload={
                     **data,
-                    "error_code": "DELIVERY_FAILED" if mapped_status == Message.Status.FAILED else error_code,
+                    "error_code": (
+                        str(error_code or "DELIVERY_FAILED")
+                        if mapped_status == Message.Status.FAILED
+                        else error_code
+                    ),
                 },
             )
         except services.UnknownMessage:

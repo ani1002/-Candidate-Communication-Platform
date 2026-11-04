@@ -116,7 +116,7 @@ def _mark_failed(message_id, code):
     text, retryable = friendly_error(code)
     with transaction.atomic():
         m = Message.objects.select_for_update().get(id=message_id)
-        if m.status in (Message.Status.DELIVERED, Message.Status.READ):
+        if m.status == Message.Status.DELIVERED:
             return
         m.status = Message.Status.FAILED
         m.failure_code = code
@@ -136,7 +136,7 @@ def apply_status_update(event_id, status, reference=None, provider_message_id=No
     """Returns 'applied', 'ignored' (older/irrelevant update) or 'duplicate'.
 
     * Same event_id twice  -> 'duplicate' (unique constraint), nothing changes.
-    * Older status after a newer one (e.g. delivered after read) -> 'ignored'.
+    * Older status after a newer one (e.g. sent after delivered) -> 'ignored'.
     """
     message = None
     if reference and str(reference).isdigit():

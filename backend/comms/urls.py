@@ -12,5 +12,5 @@ urlpatterns = [
     path("messages/<int:pk>/", views.MessageDetail.as_view()),
     path("batches/<int:pk>/", views.BatchDetail.as_view()),
     path("webhooks/provider/", views.ProviderWebhook.as_view()),
-    path("webhooks/twilio/", views.TwilioStatusWebhook.as_view()),
+    path("webhooks/twilio-sms/", views.TwilioStatusWebhook.as_view()),
 ]

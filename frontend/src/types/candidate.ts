@@ -1,4 +1,4 @@
-export type MessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed';
+export type MessageStatus = 'pending' | 'sent' | 'delivered' | 'failed';
 
 export interface Candidate {
   /** Candidate ID shown in the table (e.g. "A1B2C3") */
@@ -17,6 +17,7 @@ export interface CommunicationMessage {
   sentAt: string;
   content: string;
   status: MessageStatus;
+  failureReason?: string | null;
 }
 
 export interface NewCandidateInput {

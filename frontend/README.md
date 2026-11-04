@@ -31,7 +31,7 @@ frontend/
     │       ├── CandidateToolbar.tsx         # Title, Add / Delete / Send, search
     │       ├── CandidateTable.tsx           # Table, selection, filters, pagination
     │       ├── ColumnFilter.tsx             # Per-column filter popover
-    │       ├── StatusChip.tsx               # read / Failed / Sent / NA
+    │       ├── StatusChip.tsx               # Delivered / Failed / Sent / NA
     │       ├── EmptyState.tsx               # "No candidates added"
     │       ├── AddCandidateDialog.tsx
     │       └── DeleteCandidateDialog.tsx

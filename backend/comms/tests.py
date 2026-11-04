@@ -7,7 +7,7 @@ from twilio.request_validator import RequestValidator
 
 from . import services
 from .models import Candidate, Message, MessageStatusEvent
-from .providers import ProviderError, TwilioWhatsAppProvider
+from .providers import ProviderError, TwilioSMSProvider
 
 SECRET = {"HTTP_X_WEBHOOK_SECRET": "dummy-webhook-secret"}
 
@@ -19,11 +19,11 @@ def fake_send(self, to, body, reference):
         raise ProviderError("INVALID_RECIPIENT", "bad number")
     if tail == "0002":
         raise ProviderError("PROVIDER_UNAVAILABLE", "down")
-    return f"wamid_{reference}"
+    return f"SM{reference}"
 
 
 @override_settings(SEND_SYNC=True, RETRY_BACKOFF_SECONDS=0, MAX_SEND_ATTEMPTS=3)
-@mock.patch("comms.providers.DummyWhatsAppProvider.send", fake_send)
+@mock.patch("comms.providers.DummySMSProvider.send", fake_send)
 class PlatformTests(TransactionTestCase):
     def setUp(self):
         self.api = APIClient()
@@ -165,12 +165,12 @@ class PlatformTests(TransactionTestCase):
     # ---- webhooks ----
     def test_status_progression_and_history(self):
         m = services.create_messages([self.rahul], "Hi")[0]
+        self.assertEqual(self.hook(m, "sent", "e0").json()["result"], "applied")
         self.assertEqual(self.hook(m, "delivered", "e1").json()["result"], "applied")
-        self.assertEqual(self.hook(m, "read", "e2").json()["result"], "applied")
         m.refresh_from_db()
-        self.assertEqual(m.status, "read")
+        self.assertEqual(m.status, "delivered")
         hist = self.api.get(f"/api/candidates/{self.rahul.id}/messages/").json()
-        self.assertEqual(hist["messages"][0]["status"], "read")
+        self.assertEqual(hist["messages"][0]["status"], "delivered")
         self.assertEqual(hist["messages"][0]["body"], "Hi")
 
     def test_duplicate_webhook_is_ignored(self):
@@ -183,10 +183,10 @@ class PlatformTests(TransactionTestCase):
 
     def test_out_of_order_update_never_moves_status_backward(self):
         m = services.create_messages([self.rahul], "Hi")[0]
-        self.hook(m, "read", "e1")
-        self.assertEqual(self.hook(m, "delivered", "e2").json()["result"], "ignored")
+        self.hook(m, "delivered", "e1")
+        self.assertEqual(self.hook(m, "sent", "e2").json()["result"], "ignored")
         m.refresh_from_db()
-        self.assertEqual(m.status, "read")
+        self.assertEqual(m.status, "delivered")
 
     def test_delivery_failure_webhook(self):
         m = services.create_messages([self.rahul], "Hi")[0]
@@ -196,61 +196,93 @@ class PlatformTests(TransactionTestCase):
         self.assertTrue(m.is_retryable)
         self.assertTrue(m.failure_reason)
 
-    def test_failed_after_read_is_ignored(self):
+    def test_failed_after_delivery_is_ignored(self):
         m = services.create_messages([self.rahul], "Hi")[0]
-        self.hook(m, "read", "e1")
+        self.hook(m, "delivered", "e1")
         self.hook(m, "failed", "e2")
         m.refresh_from_db()
-        self.assertEqual(m.status, "read")
+        self.assertEqual(m.status, "delivered")
 
     def test_webhook_before_send_finishes_does_not_regress(self):
         """Delivered arrives first; the send task finishing later must not set it back to 'sent'."""
         m = Message.objects.create(candidate=self.rahul, body="Hi")
         self.hook(m, "delivered", "e1")
-        services._mark_sent(m.id, "wamid_x")
+        services._mark_sent(m.id, "SM_x")
         m.refresh_from_db()
         self.assertEqual(m.status, "delivered")
-        self.assertEqual(m.provider_message_id, "wamid_x")
+        self.assertEqual(m.provider_message_id, "SM_x")
 
     def test_webhook_security_and_validation(self):
         m = services.create_messages([self.rahul], "Hi")[0]
-        body = {"event_id": "e", "status": "read", "reference": str(m.id)}
+        body = {"event_id": "e", "status": "delivered", "reference": str(m.id)}
         self.assertEqual(self.api.post("/api/webhooks/provider/", body, format="json").status_code, 401)
-        self.assertEqual(self.api.post("/api/webhooks/provider/", {"status": "read"}, format="json", **SECRET).status_code, 400)
-        unknown = {"event_id": "e9", "status": "read", "reference": "99999"}
+        self.assertEqual(self.api.post("/api/webhooks/provider/", {"status": "delivered"}, format="json", **SECRET).status_code, 400)
+        unknown = {"event_id": "e9", "status": "delivered", "reference": "99999"}
         self.assertEqual(self.api.post("/api/webhooks/provider/", unknown, format="json", **SECRET).status_code, 404)
 
     @override_settings(
         TWILIO_ACCOUNT_SID="ACtest",
         TWILIO_AUTH_TOKEN="test-auth-token",
-        TWILIO_WHATSAPP_FROM="whatsapp:+14155238886",
-        TWILIO_STATUS_CALLBACK_URL="https://example.test/api/webhooks/twilio/",
+        TWILIO_SMS_FROM="+14155550123",
+        TWILIO_SMS_STATUS_CALLBACK_URL="https://example.test/api/webhooks/twilio-sms/",
     )
     @mock.patch("comms.providers.Client")
-    def test_twilio_provider_sends_whatsapp_message_and_status_callback(self, client_factory):
+    def test_twilio_provider_sends_sms_and_status_callback(self, client_factory):
         client_factory.return_value.messages.create.return_value.sid = "SM1234567890"
 
-        provider = TwilioWhatsAppProvider()
+        provider = TwilioSMSProvider()
         provider_sid = provider.send("+919876543210", "Interview update", "42")
 
         self.assertEqual(provider_sid, "SM1234567890")
         client_factory.return_value.messages.create.assert_called_once_with(
-            from_="whatsapp:+14155238886",
-            to="whatsapp:+919876543210",
+            from_="+14155550123",
+            to="+919876543210",
             body="Interview update",
-            status_callback="https://example.test/api/webhooks/twilio/?reference=42",
+            status_callback="https://example.test/api/webhooks/twilio-sms/?reference=42",
         )
+
+    @override_settings(
+        TWILIO_ACCOUNT_SID="ACtest",
+        TWILIO_AUTH_TOKEN="test-auth-token",
+        TWILIO_SMS_FROM="+14155550123",
+    )
+    @mock.patch("comms.providers.Client")
+    def test_twilio_send_failure_has_recruiter_friendly_sms_error(self, client_factory):
+        from twilio.base.exceptions import TwilioRestException
+
+        client_factory.return_value.messages.create.side_effect = TwilioRestException(
+            status=400,
+            uri="/Messages",
+            msg="Raw Twilio error",
+            code=21614,
+        )
+
+        message = Message.objects.create(
+            candidate=self.rahul,
+            body="Interview update",
+            provider="twilio_sms",
+        )
+        services.send_message(message.id)
+
+        message.refresh_from_db()
+        self.assertEqual(message.status, Message.Status.FAILED)
+        self.assertEqual(message.failure_code, "21614")
+        self.assertIn("valid mobile number", message.failure_reason)
+        self.assertFalse(message.is_retryable)
+        client_factory.return_value.messages.create.assert_called_once()
+        history = self.api.get(f"/api/candidates/{self.rahul.id}/messages/").json()
+        self.assertEqual(history["messages"][0]["failure_reason"], message.failure_reason)
 
     @override_settings(
         TWILIO_ACCOUNT_SID="",
         TWILIO_AUTH_TOKEN="",
-        TWILIO_WHATSAPP_FROM="",
+        TWILIO_SMS_FROM="",
     )
     def test_twilio_provider_configuration_failure_is_recorded_without_retry(self):
         message = Message.objects.create(
             candidate=self.rahul,
             body="Interview update",
-            provider="twilio_whatsapp",
+            provider="twilio_sms",
         )
 
         services.send_message(message.id)
@@ -262,16 +294,16 @@ class PlatformTests(TransactionTestCase):
 
     @override_settings(
         TWILIO_AUTH_TOKEN="test-auth-token",
-        TWILIO_STATUS_CALLBACK_URL="https://example.test/api/webhooks/twilio/",
+        TWILIO_SMS_STATUS_CALLBACK_URL="https://example.test/api/webhooks/twilio-sms/",
     )
     def test_twilio_status_webhook_verifies_signature_and_updates_message(self):
         message = Message.objects.create(
             candidate=self.rahul,
             body="Interview update",
-            provider="twilio_whatsapp",
+            provider="twilio_sms",
             provider_message_id="SM1234567890",
         )
-        callback_url = f"https://example.test/api/webhooks/twilio/?reference={message.id}"
+        callback_url = f"https://example.test/api/webhooks/twilio-sms/?reference={message.id}"
         payload = {
             "MessageSid": "SM1234567890",
             "MessageStatus": "delivered",
@@ -279,7 +311,7 @@ class PlatformTests(TransactionTestCase):
         signature = RequestValidator("test-auth-token").compute_signature(callback_url, payload)
 
         response = self.api.post(
-            f"/api/webhooks/twilio/?reference={message.id}",
+            f"/api/webhooks/twilio-sms/?reference={message.id}",
             data="MessageSid=SM1234567890&MessageStatus=delivered",
             content_type="application/x-www-form-urlencoded",
             HTTP_X_TWILIO_SIGNATURE=signature,
@@ -292,11 +324,11 @@ class PlatformTests(TransactionTestCase):
 
     @override_settings(
         TWILIO_AUTH_TOKEN="test-auth-token",
-        TWILIO_STATUS_CALLBACK_URL="https://example.test/api/webhooks/twilio/",
+        TWILIO_SMS_STATUS_CALLBACK_URL="https://example.test/api/webhooks/twilio-sms/",
     )
     def test_twilio_status_webhook_rejects_invalid_signature(self):
         response = self.api.post(
-            "/api/webhooks/twilio/?reference=1",
+            "/api/webhooks/twilio-sms/?reference=1",
             data="MessageSid=SM1234567890&MessageStatus=delivered",
             content_type="application/x-www-form-urlencoded",
             HTTP_X_TWILIO_SIGNATURE="invalid",
@@ -304,9 +336,47 @@ class PlatformTests(TransactionTestCase):
 
         self.assertEqual(response.status_code, 401)
 
+    @override_settings(
+        TWILIO_AUTH_TOKEN="test-auth-token",
+        TWILIO_SMS_STATUS_CALLBACK_URL="https://example.test/api/webhooks/twilio-sms/",
+    )
+    def test_twilio_delivery_failure_records_friendly_reason(self):
+        message = Message.objects.create(
+            candidate=self.rahul,
+            body="Interview update",
+            provider="twilio_sms",
+            provider_message_id="SM1234567890",
+            status=Message.Status.SENT,
+        )
+        callback_url = f"https://example.test/api/webhooks/twilio-sms/?reference={message.id}"
+        payload = {
+            "MessageSid": "SM1234567890",
+            "MessageStatus": "failed",
+            "ErrorCode": "21614",
+            "ErrorMessage": "Raw provider details",
+        }
+        signature = RequestValidator("test-auth-token").compute_signature(callback_url, payload)
+
+        response = self.api.post(
+            f"/api/webhooks/twilio-sms/?reference={message.id}",
+            data=(
+                "MessageSid=SM1234567890&MessageStatus=failed&ErrorCode=21614"
+                "&ErrorMessage=Raw+provider+details"
+            ),
+            content_type="application/x-www-form-urlencoded",
+            HTTP_X_TWILIO_SIGNATURE=signature,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        message.refresh_from_db()
+        self.assertEqual(message.status, Message.Status.FAILED)
+        self.assertEqual(message.failure_code, "21614")
+        self.assertIn("valid mobile number", message.failure_reason)
+        self.assertFalse(message.is_retryable)
+
     def test_sending_twice_is_prevented(self):
         m = services.create_messages([self.rahul], "Hi")[0]
-        with mock.patch("comms.providers.DummyWhatsAppProvider.send") as send:
+        with mock.patch("comms.providers.DummySMSProvider.send") as send:
             services.send_message(m.id)  # already sent -> must not call provider
             send.assert_not_called()
 

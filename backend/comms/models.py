@@ -32,18 +32,17 @@ class Message(models.Model):
         PENDING = "pending", "Pending"
         SENT = "sent", "Sent"
         DELIVERED = "delivered", "Delivered"
-        READ = "read", "Read"
         FAILED = "failed", "Failed"
 
     # Order of the happy path. A message may only move forward along it.
-    RANK = {"pending": 0, "sent": 1, "delivered": 2, "read": 3}
+    RANK = {"pending": 0, "sent": 1, "delivered": 2}
 
     candidate = models.ForeignKey(Candidate, on_delete=models.CASCADE, related_name="messages")
     batch = models.ForeignKey(
         BulkBatch, null=True, blank=True, on_delete=models.SET_NULL, related_name="messages"
     )
     body = models.TextField()
-    provider = models.CharField(max_length=30, default="dummy_whatsapp")
+    provider = models.CharField(max_length=30, default="dummy_sms")
     provider_message_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
 

@@ -7,7 +7,6 @@ import type { MessageStatus } from '@/types/candidate';
 
 const CONFIG: Record<MessageStatus, { label: string; color: string; bg: string; icon?: ReactElement }> = {
   pending: { label: 'Pending', color: '#8a6d1d', bg: '#fff4d6' },
-  read: { label: 'read', color: '#2e7d32', bg: '#e6f4ea', icon: <CheckIcon /> },
   failed: { label: 'Failed', color: '#c62828', bg: '#fdecea', icon: <ErrorOutlineIcon /> },
   delivered: { label: 'Delivered', color: '#2e7d32', bg: '#e6f4ea', icon: <CheckIcon /> },
   sent: { label: 'Sent', color: '#1d5fa8', bg: '#e3f0fb' },

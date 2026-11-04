@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+**/venv/
+**/.venv/
+**/env/
+**/ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+
+# Django local data
+/backend/db.sqlite3
+/backend/db.sqlite3-*
+/backend/media/
+/backend/staticfiles/
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Logs and operating-system files
+*.log
+.DS_Store
+Thumbs.db

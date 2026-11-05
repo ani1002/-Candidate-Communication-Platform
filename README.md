@@ -1,67 +1,61 @@
 # Candidate Communication Platform
 
-A web app for recruiters to manage candidates, send individual or bulk SMS messages, and review
-message status and communication history.
+A recruiter-focused web application for managing candidates, sending individual or bulk SMS
+messages through a local dummy provider, and tracking message status and communication history.
 
-The project has a **Next.js frontend** and a **Django REST API**. For local development, a
-separate Flask dummy SMS provider simulates message delivery and provider failures without
-contacting real phone numbers. Twilio SMS is available when real messaging credentials and an
-SMS-capable Twilio number are configured.
-
-> **SMS costs money.** The dummy provider is free for local testing, but it does not deliver
-> actual text messages. Twilio trial accounts may only send to verified recipient numbers.
-> Standard SMS does not provide read receipts.
+> **Demo only:** The dummy provider simulates SMS. It does not send messages to real phone
+> numbers or contact a mobile network.
 
 ## Features
 
 - Add, search, filter, select, and delete candidates.
-- Send a message to one or multiple selected candidates.
-- View each candidate's message history, timestamp, latest status, and failure explanation.
-- Track SMS as `pending`, `sent`, `delivered`, or `failed`.
-- Receive provider status callbacks; reject invalid Twilio webhook signatures.
-- Retry transient provider errors and report common failures in recruiter-friendly language.
-- Simulate delivery, temporary outages, rate limits, and failures with the local dummy provider.
+- Validate candidate names, email addresses, and phone numbers in E.164 format.
+- Send a message to one candidate or the same message to multiple candidates.
+- Track each bulk recipient independently, including failures.
+- View a candidate's communication history, timestamps, message statuses, and failure details.
+- Receive provider status callbacks and safely ignore duplicate or outdated updates.
+- Automatically retry temporary provider errors and show recruiter-friendly error messages.
+- Simulate delivery, permanent failures, temporary outages, and rate limits.
 
 ## Technology
 
 | Area | Technologies |
 |---|---|
-| Frontend | Next.js App Router, React, TypeScript, Material UI, Redux Toolkit |
+| Frontend | Next.js, React, TypeScript, Material UI, Redux Toolkit |
 | Backend | Python, Django, Django REST Framework |
-| Local SMS simulation | Flask |
-| Real SMS provider | Twilio Programmable Messaging |
-| Local database | SQLite |
+| Dummy message provider | Flask |
+| Database | SQLite |
 
 ## Architecture
 
 ```text
 Browser (Next.js)
-    |
     | REST / JSON
     v
-Django REST API ---- creates message records and queues sends
+Django REST API ---- stores candidates, messages, batches, and status events
     |
-    +---- Dummy SMS provider (Flask, local development)
-    |
-    +---- Twilio SMS (when MESSAGE_PROVIDER=twilio_sms)
-                   |
-                   +---- signed status callback -> Django
+    | HTTP
+    v
+Flask dummy SMS provider ---- sends status callbacks to Django
 ```
 
-The backend stores candidates, messages, batches, and provider status events in SQLite. A small
-in-process thread pool sends messages asynchronously; the database record is created before the
-send is queued. Provider-specific API calls and error mapping live in
-[`backend/comms/providers.py`](./backend/comms/providers.py). Candidate/message API views are in
+The dummy provider runs as a separate local service to model an external communication provider.
+The backend creates message records and sends messages asynchronously using an in-process worker
+pool. Provider integration and error handling are implemented in
+[`backend/comms/providers.py`](./backend/comms/providers.py); API views are in
 [`backend/comms/views.py`](./backend/comms/views.py).
 
-## Run locally
+## Requirements
 
-You need Python, Node.js, and npm. The commands below use PowerShell on Windows; equivalent
-commands for macOS/Linux are shown afterward.
+- Python 3.10 or later
+- Node.js and npm
 
-### 1. Install Python dependencies and migrate the database
+## Run locally on Windows
 
-From the repository root:
+Run commands from the repository root unless noted otherwise. Open a separate terminal for each
+service.
+
+### 1. Create a Python environment, install dependencies, and migrate the database
 
 ```powershell
 python -m venv .venv
@@ -70,9 +64,9 @@ python -m pip install -r requirements.txt
 python backend\manage.py migrate
 ```
 
-### 2. Start the dummy SMS provider
+### 2. Start the dummy provider
 
-Open a second terminal at the repository root:
+In a second terminal:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -80,23 +74,22 @@ cd dummy_provider
 python app.py
 ```
 
-It listens on `http://127.0.0.1:5001`. This provider simulates SMS; it does not send messages to
-mobile networks.
+The provider listens on `http://127.0.0.1:5001`.
 
 ### 3. Start the Django API
 
-Open a third terminal at the repository root:
+In a third terminal at the repository root:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python backend\manage.py runserver
 ```
 
-The API is available at `http://127.0.0.1:8000`.
+The API listens on `http://127.0.0.1:8000`.
 
 ### 4. Start the frontend
 
-Open another terminal:
+In another terminal:
 
 ```powershell
 cd frontend
@@ -104,89 +97,54 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. The frontend uses the Django API by default. Its local example
-environment file is [`frontend/.env.local.example`](./frontend/.env.local.example). Copy it to
-`frontend/.env.local` if you want to configure the API URL or switch to the in-memory frontend
-demo:
+Open `http://localhost:3000`. By default, the frontend uses the Django API at
+`http://127.0.0.1:8000`. To change the API URL, set `NEXT_PUBLIC_API_URL` in
+`frontend/.env.local`; see [`frontend/.env.local.example`](./frontend/.env.local.example).
+Set `NEXT_PUBLIC_USE_MOCK=true` to run the frontend-only in-memory demo instead. That mode does
+not persist data or send messages. Restart the frontend after changing environment variables.
 
-```powershell
-Copy-Item .env.local.example .env.local
-```
+## Run locally on macOS or Linux
 
-Set `NEXT_PUBLIC_USE_MOCK=true` to use frontend-only in-memory data. This demo does not persist
-data and does not send real SMS. Restart the frontend after changing its environment variables.
-
-### macOS/Linux quick commands
-
-From the repository root, create and activate a virtual environment, install dependencies, and
-migrate:
+From the repository root:
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 python backend/manage.py migrate
 ```
 
-Then start the Flask provider in one terminal:
+Start each service in a separate terminal with the virtual environment activated:
 
 ```bash
-cd dummy_provider
-python app.py
+cd dummy_provider && python app.py
 ```
-
-Start Django in another terminal from the repository root:
 
 ```bash
 python backend/manage.py runserver
 ```
 
-In another terminal:
-
 ```bash
-cd frontend
-npm install
-npm run dev
+cd frontend && npm install && npm run dev
 ```
 
-## Send real SMS with Twilio
+Then open `http://localhost:3000`.
 
-You need a Twilio account and an SMS-capable Twilio number. Configure these variables in the
-**backend process environment** or your backend host's environment settings:
+## Dummy-provider scenarios
 
-| Variable | Purpose |
+The last four digits of a candidate's phone number control the simulated outcome:
+
+| Last four digits | Simulated result |
 |---|---|
-| `MESSAGE_PROVIDER` | Set to `twilio_sms` |
-| `TWILIO_ACCOUNT_SID` | Twilio account or subaccount SID |
-| `TWILIO_AUTH_TOKEN` | Twilio Auth Token |
-| `TWILIO_SMS_FROM` | Your SMS-capable Twilio number in E.164 format, e.g. `+12545550123` |
-| `TWILIO_SMS_STATUS_CALLBACK_URL` | Optional public HTTPS callback ending in `/api/webhooks/twilio-sms/` |
+| `0001` | Invalid recipient; permanent failure |
+| `0002` | Provider unavailable; temporary failure and automatic retries |
+| `0003` | Rate limited; temporary failure and automatic retries |
+| `0004` | Message accepted, then delivery fails |
+| `0005` | Message is delivered |
+| `0006` | Two temporary failures, then successful send |
+| Any other digits | Message is sent and delivered |
 
-PowerShell example (replace placeholders locally; **never commit real values**):
-
-```powershell
-$env:MESSAGE_PROVIDER = "twilio_sms"
-$env:TWILIO_ACCOUNT_SID = "AC..."
-$env:TWILIO_AUTH_TOKEN = "..."
-$env:TWILIO_SMS_FROM = "+12545550123"
-$env:TWILIO_SMS_STATUS_CALLBACK_URL = "https://your-public-host/api/webhooks/twilio-sms/"
-python backend\manage.py runserver
-```
-
-The project reads environment variables with Python's `os.environ`; it does not automatically
-load `backend/.env`. Set variables in the shell before starting Django, or use your hosting
-platform's environment-variable settings. Keep the Auth Token server-side only—never put it in
-the frontend or a `NEXT_PUBLIC_` variable.
-
-Twilio requires the sender number to belong to the configured account and support SMS. Trial
-accounts may restrict recipients to verified numbers; number capabilities, destination-country
-rules, consent requirements, and costs depend on the account and destination. The `+1` sender in
-the example is illustrative and may not be able to send internationally.
-
-For status updates, Twilio must be able to reach the callback URL over public HTTPS. For local
-development, use a secure tunnel to expose the Django server and set the callback URL to that
-tunnel address. The webhook verifies Twilio's signature using `TWILIO_AUTH_TOKEN`. SMS supports
-delivery states, not read receipts.
+These are test scenarios, not real phone-number checks or delivery guarantees.
 
 ## API overview
 
@@ -194,38 +152,20 @@ All endpoints are prefixed with `/api/`.
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/candidates/?search=<text>` | Search and list candidates (paginated) |
+| `GET` | `/candidates/?search=<text>` | Search and list candidates |
 | `POST` | `/candidates/` | Create a candidate |
 | `GET` | `/candidates/<id>/` | Retrieve a candidate |
-| `DELETE` | `/candidates/<id>/` | Delete a candidate and their message history |
+| `DELETE` | `/candidates/<id>/` | Delete a candidate and its communication history |
 | `POST` | `/candidates/bulk-delete/` | Delete multiple candidates |
-| `GET` | `/candidates/<id>/messages/` | Retrieve candidate communication history |
+| `GET` | `/candidates/<id>/messages/` | Retrieve a candidate's communication history |
 | `POST` | `/messages/` | Send one message: `{"candidate_id": 1, "body": "Hello"}` |
-| `POST` | `/messages/bulk/` | Send to multiple candidates: `{"candidate_ids": [1, 2], "body": "Hello"}` |
-| `GET` | `/messages/<id>/` | Retrieve a message and its delivery/failure details |
+| `POST` | `/messages/bulk/` | Send bulk: `{"candidate_ids": [1, 2], "body": "Hello"}` |
+| `GET` | `/messages/<id>/` | Retrieve a message and its delivery or failure details |
 | `GET` | `/batches/<id>/` | Retrieve bulk-send results and status counts |
-| `POST` | `/webhooks/twilio-sms/` | Receive signed Twilio SMS status callbacks |
-| `POST` | `/webhooks/provider/` | Receive dummy-provider callbacks (requires `X-Webhook-Secret`) |
+| `POST` | `/webhooks/provider/` | Receive status callbacks from the dummy provider |
 
-Candidate phone numbers must include a country code in E.164 format, for example
-`+919876543210`. Bulk sends create an individual message record for each candidate and return a
-batch ID; query the batch endpoint to view each recipient's result.
-
-## Dummy SMS test cases
-
-The dummy provider uses the last four digits of the recipient phone number to simulate outcomes:
-
-| Last four digits | Simulated result |
-|---|---|
-| `0001` | Invalid recipient; permanent failure |
-| `0002` | Provider unavailable; retried, then fails |
-| `0003` | Rate limited; retried, then fails |
-| `0004` | Accepted, then delivery fails via callback |
-| `0005` | Delivered |
-| `0006` | Two temporary failures, then successful send |
-| Other | Sent and delivered |
-
-These are simulation rules only; they do not represent actual phone-number validity.
+Phone numbers must include a country code in E.164 format, for example `+919876543210`. Bulk
+sends create an independently tracked message for each candidate and return a batch ID.
 
 ## Tests and checks
 
@@ -233,31 +173,26 @@ From the repository root:
 
 ```powershell
 python backend\manage.py test comms
+```
+
+For the frontend TypeScript check:
+
+```powershell
 cd frontend
 npm run typecheck
 ```
 
-## Deployment and security notes
-
-- Deploy the frontend and Django API as separate services; the frontend's
-  `NEXT_PUBLIC_API_URL` must point to the deployed API.
-- The backend currently uses SQLite. For deployment, use storage that persists across restarts;
-  ephemeral filesystems can lose the database. A hosted database such as PostgreSQL requires
-  additional database configuration in the backend.
-- The API currently has no recruiter authentication and uses permissive CORS for development.
-  Do not expose it publicly with real candidate data until authentication, restricted CORS,
-  production Django settings, and appropriate database backups are configured.
-- The background send thread pool is process-local. If the server stops during a send, pending
-  rows remain in the database but are not automatically re-queued after restart.
-- Provider status updates are deduplicated and older updates cannot move a message backward.
-- Messages are sent only while their status is `pending`, preventing duplicate sends from
-  repeated worker calls.
-
 ## Assumptions and limitations
 
-- This app sends **SMS**, not WhatsApp.
-- SMS does not report whether a recipient read a message.
-- Real SMS delivery requires an external provider account and may incur fees.
-- The local dummy provider is for development and demonstrations only.
-- Recruiter authentication, manual retry, and persistent background job processing are not
-  implemented.
+- This demo sends simulated SMS only. It does not send real SMS or WhatsApp messages.
+- SMS does not provide read receipts; statuses are `pending`, `sent`, `delivered`, or `failed`.
+- The dummy provider and its in-memory state are intended for local development and demonstrations.
+- Temporary send failures are retried automatically. Recruiters cannot manually retry failed
+  messages from the interface.
+- Message templates, scheduled messages, provider-health monitoring, and recruiter
+  authentication are not implemented.
+- The backend uses SQLite and an in-process thread pool. Pending sends are not automatically
+  re-queued if the backend stops.
+- The API has no recruiter authentication and uses permissive CORS for development. Do not expose
+  it publicly with real candidate data without adding authentication, production settings,
+  restricted CORS, and persistent database storage.

@@ -32,6 +32,11 @@ interface CandidateHistoryDTO {
   messages: CommunicationMessageDTO[];
 }
 
+interface BatchStatusDTO {
+  total: number;
+  messages: { status: MessageStatus }[];
+}
+
 export interface CandidateRemovalResult {
   deleted: string[];
   notFound: string[];
@@ -50,6 +55,7 @@ interface CandidateService {
   create(input: NewCandidateInput, signal?: AbortSignal): Promise<Candidate>;
   remove(ids: string[]): Promise<CandidateRemovalResult>;
   sendMessage(ids: string[], message: string): Promise<SendMessageResult>;
+  waitForBatchCompletion(batchId: string): Promise<void>;
 }
 
 const fromDTO = (d: CandidateDTO): Candidate => ({
@@ -174,6 +180,10 @@ const mockService = {
       updatedCandidates: mockDb.filter((c) => ids.includes(c.id)).map((c) => ({ ...c })),
     };
   },
+
+  waitForBatchCompletion(): Promise<void> {
+    return Promise.resolve();
+  },
 };
 
 /* ------------------------------- api -------------------------------- */
@@ -278,6 +288,28 @@ const apiService = {
       queued: true,
       updatedCandidates: [],
     };
+  },
+
+  async waitForBatchCompletion(batchId: string): Promise<void> {
+    while (true) {
+      const batch = await http<BatchStatusDTO>(`/api/batches/${encodeURIComponent(batchId)}/`);
+      if (
+        !Number.isSafeInteger(batch.total) ||
+        batch.total < 1 ||
+        !Array.isArray(batch.messages) ||
+        batch.messages.length !== batch.total
+      ) {
+        throw new Error('The batch-status API returned an invalid response.');
+      }
+
+      const statuses = batch.messages.map((message) => message.status);
+      if (statuses.some((status) => !['pending', 'sent', 'delivered', 'failed'].includes(status))) {
+        throw new Error('The batch-status API returned an unknown message status.');
+      }
+      if (statuses.every((status) => status === 'delivered' || status === 'failed')) return;
+
+      await wait(2000);
+    }
   },
 };
 

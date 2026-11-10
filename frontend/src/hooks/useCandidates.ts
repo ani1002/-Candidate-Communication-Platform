@@ -37,5 +37,19 @@ export function useCandidates() {
     return result;
   }, [dispatch]);
 
-  return { candidates, loading, error, refresh, addCandidate, deleteCandidates, sendMessage, supportsMockActions };
+  const waitForBatchCompletion = useCallback((batchId: string) => {
+    return candidateService.waitForBatchCompletion(batchId);
+  }, []);
+
+  return {
+    candidates,
+    loading,
+    error,
+    refresh,
+    addCandidate,
+    deleteCandidates,
+    sendMessage,
+    waitForBatchCompletion,
+    supportsMockActions,
+  };
 }

@@ -25,6 +25,7 @@ export default function CandidateCommunication() {
     addCandidate,
     deleteCandidates,
     sendMessage,
+    waitForBatchCompletion,
   } = useCandidates();
 
   const [search, setSearch] = useState('');
@@ -72,6 +73,18 @@ export default function CandidateCommunication() {
     try {
       const result = await sendMessage(selectedIds, message);
       await refresh();
+      if (result.queued && result.batchId) {
+        void waitForBatchCompletion(result.batchId)
+          .then(refresh)
+          .catch((error: unknown) => {
+            setToast({
+              message: error instanceof Error
+                ? `Message status could not be updated: ${error.message}`
+                : 'Message status could not be updated. Please retry loading candidates.',
+              severity: 'warning',
+            });
+          });
+      }
       setToast({
         message: result.queued
           ? `Message queued for ${result.recipientCount} ${result.recipientCount === 1 ? 'candidate' : 'candidates'}${result.batchId ? ` (batch #${result.batchId})` : ''}.`

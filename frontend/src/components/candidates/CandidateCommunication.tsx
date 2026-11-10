@@ -71,6 +71,7 @@ export default function CandidateCommunication() {
     setSending(true);
     try {
       const result = await sendMessage(selectedIds, message);
+      await refresh();
       setToast({
         message: result.queued
           ? `Message queued for ${result.recipientCount} ${result.recipientCount === 1 ? 'candidate' : 'candidates'}${result.batchId ? ` (batch #${result.batchId})` : ''}.`
